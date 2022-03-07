@@ -13,4 +13,4 @@ app = dash.Dash(
     }]
     )
 server = app.server
-app._favicon = ("assets/FP_Favicon.svg")
+app._favicon = ("assets/favicon.ico")
