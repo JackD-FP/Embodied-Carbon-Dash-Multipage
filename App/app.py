@@ -1,3 +1,4 @@
+from cgi import test
 import os
 import io
 import base64
@@ -5,8 +6,8 @@ import datetime
 from dash import html, Input, Output, State, dcc, dash_table
 from dash.exceptions import PreventUpdate
 import dash_bootstrap_components as dbc
-from numpy import True_
 import pandas as pd
+import openpyxl
 
 from src.layout import layout
 
@@ -43,8 +44,6 @@ CONTENT_STYLE = {
     "padding": "2rem 1rem",
 }
 
-global_df = []
-
 sidebar = html.Div(
     [
         html.Img(src="/assets/f+p_mono.svg", className="img-thumbnail"),
@@ -72,9 +71,9 @@ sidebar = html.Div(
     style=SIDEBAR_STYLE,
 )
 
-index = html.Div(
-    [
-        dcc.Store(id="schedule_store"),
+index =[
+        dcc.Store(id="index_store", storage_type="session"),
+        html.Div(id="table_gen"),
         html.H1("Dashboard", className="display-2 mb-5 "),
         html.Hr(),
         dbc.Card(
@@ -103,21 +102,49 @@ index = html.Div(
         ], className="w-50 m-auto my-5"),
         html.Div(id = "upload-output"),
         html.Div(id = "refresh_table"),
-    ],
-    id = "index_div")
+    ]
+    
 
+# def parse_contents(contents, filename, date):
+#     content_type, content_string = contents.split(',')
+#     decoded = base64.b64decode(content_string)
+#     try:
+#         if 'csv' in filename:
+#             # Assume that the user uploaded a CSV file
+#             df = pd.read_csv(io.StringIO(decoded.decode('utf-8')))
+#             #return update_upload(df, filename, date)
+#         elif 'xls' in filename:
+#             # Assume that the user uploaded an excel file
+#             df = pd.read_excel(io.BytesIO(decoded))
+#             #return update_upload(df, filename, date)
+#     except Exception as e:
+#         print("There's an error -- {} is missing".format(e))
+#         return dbc.Alert([
+#             html.H1("An opsies occured 😢"),
+#             html.Hr(),
+#             html.P(["There is some error with the file you uploaded. Check ",html.A('reference page', href="/pages/reference"), " for more info."],
+#             className="fs-3 p-3"),
+#             ],
+#             dismissable=True,
+#             color="warning",
+#             className= "fixed-top w-25 mt-5 shadow",
+#             style = {
+#                 "zIndex": "2",
+#                 "marginLeft": "73%",
+#             },)
+#     
 def parse_contents(contents, filename, date):
     content_type, content_string = contents.split(',')
+
     decoded = base64.b64decode(content_string)
     try:
         if 'csv' in filename:
             # Assume that the user uploaded a CSV file
-            df = pd.read_csv(io.StringIO(decoded.decode('utf-8')))
-            return update_upload(df, filename, date)
+            df = pd.read_csv(
+                io.StringIO(decoded.decode('utf-8')))
         elif 'xls' in filename:
             # Assume that the user uploaded an excel file
             df = pd.read_excel(io.BytesIO(decoded))
-            return update_upload(df, filename, date)
     except Exception as e:
         print("There's an error -- {} is missing".format(e))
         return dbc.Alert([
@@ -134,68 +161,165 @@ def parse_contents(contents, filename, date):
                 "marginLeft": "73%",
             },)
 
-
-def update_upload(df, filename, date):
     df = df.rename(columns=df.iloc[0])
-    df2 = df.drop([0,0])
-
-    df2['Structure'] = df2['Home Story Name'].str.contains('basement',case=False,regex=True)
-
-    return html.Div([  
-        dbc.Alert(
-            [
-                html.H1("Upload is SUCCESSFUL!"),
-                html.Hr(),
-                html.P("{} has been uploaded succesfully".format(filename), className="h4"),
-                html.P("Happy designing! 😁")
-            ], 
-            is_open=True, 
-            dismissable=True,
-            className= "fixed-top w-25 mt-5 p-3",
-            style = {
-                "zIndex": "2",
-                "marginLeft": "73%",
-            },
-        ),
-        dcc.Store(id='stored_data', data=df2.to_json(), storage_type="session"),
+    df = df.drop([0,0])
+    df['Structure'] = df['Home Story Name'].str.contains('basement',case=False,regex=True)
+    return html.Div([
+        html.H5(filename),
+        html.H6(datetime.datetime.fromtimestamp(date)),
         dash_table.DataTable(
-            data=df2.to_dict('records'),
-            columns=[{'name': i, 'id': i} for i in df2.columns],
+            df.to_dict('records'),
+            [{'name': i, 'id': i} for i in df.columns],
             page_size=15,
-            style_data={
-                'whiteSpace': 'normal',
-                'width': 'auto',         
-            },
-            id='data_table',
-            persistence=True,
-            persistence_type="memory")
-    ], className='mx-5')
-
-@app.callback(
-    Output('upload-output', 'children'),
-    Input('upload-data', 'contents'),
-    State('upload-data', 'filename'),
-    State('upload-data', 'last_modified'),
-)
+        ),
+        dcc.Store(id="temp_store", data=df.to_json("records"), storage_type="session")
+    ])
+    
+@app.callback(Output('upload-output', 'children'),
+              Input('upload-data', 'contents'),
+              State('upload-data', 'filename'),
+              State('upload-data', 'last_modified'))
 def update_output(list_of_contents, list_of_names, list_of_dates):
     if list_of_contents is not None:
         children = [
             parse_contents(c, n, d) for c, n, d in
             zip(list_of_contents, list_of_names, list_of_dates)]
-        return children
+        return children 
+
+@app.callback(Output('index_store', 'data'),
+              Input('temp_store', 'data'))
+def pass_update(data):
+    if data is not None:
+        return data
+    else: PreventUpdate
+
+# @app.callback(
+#     Output("table_gen", "children"), 
+#     #Input("url", "pathname"), 
+#     Input("index_store", "data"))
+# def table_reload(data):
+#     if data is not None:
+#         df = pd.read_json(data)
+#         return dash_table.DataTable(
+#                 df.to_dict('records'),
+#                 [{'name': i, 'id': i} for i in df.columns],
+#                 page_size=15,
+#             ),
+#     else: PreventUpdate
+
+    
+#@app.callback(Output("index_store", "data"),Input(""))
+
+# def update_upload(df, filename, date):
+#     df = df.rename(columns=df.iloc[0])
+#     df = df.drop([0,0])
+#     df['Structure'] = df['Home Story Name'].str.contains('basement',case=False,regex=True)
+
+#     return html.Div([
+#         dbc.Alert(
+#             [
+#                 html.H1("Upload is SUCCESSFUL!"),
+#                 html.Hr(),
+#                 html.P("{} has been uploaded succesfully".format(filename), className="h4"),
+#                 html.P("Happy designing! 😁")
+#             ], 
+#             is_open=True, 
+#             dismissable=True,
+#             className= "fixed-top w-25 mt-5 p-3",
+#             style = {
+#                 "zIndex": "2",
+#                 "marginLeft": "73%",
+#             },
+#         ),
+#         dcc.Store(id='schedule_store', data=df.to_json(), storage_type="session"),
+#         dash_table.DataTable(
+#             data=df.to_dict('records'),
+#             columns=[{'name': i, 'id': i} for i in df.columns],
+#             page_size=15,
+#             style_data={
+#                 'whiteSpace': 'normal',
+#                 'width': 'auto',         
+#             },
+#             id='data_table',
+#             persistence=True,
+#             persistence_type="memory")
+#     ], className='mx-5')
 
 
+# @app.callback(
+#     Output("refresh_table", "children"),
+#     Input("upload-data", "contents"),
+# )
+# def table_update(data):
+#     if data is not None:
+#         df = pd.DataFrame(data)
+#         index.append(dash_table.DataTable(
+#                 data=df.to_dict('records'),
+#                 columns=[{'name': i, 'id': i} for i in df.columns],
+#                 page_size=15,
+#                 style_data={
+#                     'whiteSpace': 'normal',
+#                     'width': 'auto',         
+#                 },
+#                 id='data_table',
+#                 persistence=True,
+#                 persistence_type="memory"))
+#     else: PreventUpdate
 
-content = html.Div([],
+
+# @app.callback(
+#     Output('upload-output', 'children'),
+#     Input('upload-data', 'contents'),
+#     State('upload-data', 'filename'),
+#     #State('upload-data', 'last_modified'),
+# )
+# # def update_output(list_of_contents, list_of_names, list_of_dates):
+# #     if list_of_contents is not None:
+# #         children = [
+# #             parse_contents(c, n, d) for c, n, d in
+# #             zip(list_of_contents, list_of_names, list_of_dates)]
+# #         return children
+# def update_output(contents, filename):
+#     if contents is not None:
+#         return html.Div([
+#             dbc.Alert(
+#             [
+#                 html.H1("Upload is SUCCESSFUL!"),
+#                 html.Hr(),
+#                 html.P("{} has been uploaded succesfully".format(filename), className="h4"),
+#                 html.P("Happy designing! 😁")
+#             ], 
+#             is_open=True, 
+#             dismissable=True,
+#             className= "fixed-top w-25 mt-5 p-3",
+#             style = {"zIndex": "2", "marginLeft": "73%"},
+#             ),
+#             html.H1("potato"),
+#             dash_table.DataTable(
+#                 data=df.to_dict('records'),
+#                 columns=[{'name': i, 'id': i} for i in df.columns],
+#                 page_size=15,
+#                 style_data={
+#                     'whiteSpace': 'normal',
+#                     'width': 'auto',         
+#                 },
+#                 id='data_table',
+#                 persistence=True,
+#                 persistence_type="memory"),
+#        ])
+        
+content = html.Div(
     id="page-content", 
     style=CONTENT_STYLE)
-app.layout = html.Div([dcc.Location(id="url", refresh=False), sidebar, content])
 
+app.layout = html.Div([dcc.Location(id="url", refresh=False), sidebar, content])
 #PAGE ROUTER!!!!
-@app.callback(Output("page-content", "children"), [Input("url", "pathname")])
+@app.callback(
+    Output("page-content", "children"), 
+    Input("url", "pathname"))
 def render_page_content(pathname):
-    if pathname == "/":
-        return index
+    if pathname == "/":   
+        return  html.Div(index, id = "index_div")
     elif pathname == "/pages/Analysis":
         return Analysis.layout
     elif pathname == "/pages/total_embodied_carbon":
@@ -210,7 +334,5 @@ def render_page_content(pathname):
             html.P(f"The pathname {pathname} was not recognised..."),
         ]
     )
-
-
 if __name__ == '__main__':
     app.run_server(debug=True)
