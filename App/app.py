@@ -131,7 +131,7 @@ index =[
 #             style = {
 #                 "zIndex": "2",
 #                 "marginLeft": "73%",
-#             },)
+#             })
 #     
 def parse_contents(contents, filename, date):
     content_type, content_string = contents.split(',')
